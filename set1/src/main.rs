@@ -1,5 +1,7 @@
 use base64;
 use hex;
+use std::error::Error;
+use std::io;
 
 // 1. DONE convert hex to base64
 
@@ -37,18 +39,18 @@ mod tests_small_crates {
 I go crazy when I hear a cymbal";
     const ANS_EXPECTED: &str = "0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f";
     const KEY: &str = "ICE";
-/*
-    #[test]
-    fn test_fixed_xor() {
-        assert_eq!(STRING_RESULT_2, &fixed_xor(STRING1_2, STRING2_2));
-    }
+    /*
+        #[test]
+        fn test_fixed_xor() {
+            assert_eq!(STRING_RESULT_2, &fixed_xor(STRING1_2, STRING2_2));
+        }
 
-    #[test]
-    fn test_hex_to_base64() {
-        assert_eq!(BASE64_1, &hex_to_base64(HEX_1));
-    }
-*/
-/*
+        #[test]
+        fn test_hex_to_base64() {
+            assert_eq!(BASE64_1, &hex_to_base64(HEX_1));
+        }
+    */
+    /*
     #[test]
     fn test_repeating_key_xor() {
         let plaintext = STANZA.as_bytes();
@@ -64,301 +66,236 @@ I go crazy when I hear a cymbal";
 // method: make function to score english plaintext. character frequency
 // is good metric.
 //
-// ALRIGHT: it seems my work is cut out for me.
-//
-//  what I think the problem is: the bytes not listed in the freq hashmap do not contribute to
-//  the running average. This leads to strings with lots of non-ASCII bytes having very few
-//  data points in the count hashmap, which eventually messes up the average.
-//
-//      -- if this analysis is correct, initializing all possible bytes not in freq_map to 0
-//          and operating on raw bytes only should fix this problem.
-//
-//  1. change all function signatures to raw bytes      -- done, I think.
-//
-//  2. change distribution hashmap to use raw bytes instead of chars.       -- done.
-//
-//  3. one by one, implement and test to make sure each little function is working properly.
-//      refactor when needed.
-//
-//  4. put them together in the break function
-//
-//
 
-mod three {
+//--------------------------------------------------------------------------------------------
+//constants
+//
+const STRING_3: &str = "1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736";
 
-    use crate::fixed_xor;
-    use std::collections::HashMap;
-    use std::error::Error;
-    use std::io;
+//ascii characters that I think the plaintext might contain
+const ALPHABET: [u8; 94] = [
+    b'!', b'"', b'#', b'$', b'%', b'&', b'\'', b'(', b')', b'*', b'+', b',', b'-', b'.', b'/',
+    b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b':', b';', b'<', b'=', b'>', b'?',
+    b'@', b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J', b'K', b'L', b'M', b'N', b'O',
+    b'P', b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X', b'Y', b'Z', b'[', b'\\', b']', b'^',
+    b'_', b'`', b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j', b'k', b'l', b'm', b'n',
+    b'o', b'p', b'q', b'r', b's', b't', b'u', b'v', b'w', b'x', b'y', b'z', b'{', b'|', b'}', b'~',
+];
 
-    //--------------------------------------------------------------------------------------------
-    //constants
-    //
-    const STRING_3: &str = "1b37373331363f78151b7f2b783431333d78397828372d363c78373e783a393b3736";
-
-    //ascii characters that I think the plaintext might contain
-    const ALPHABET: [u8; 94] = [
-        b'!', b'"', b'#', b'$', b'%', b'&', b'\'', b'(', b')', b'*', b'+', b',', b'-', b'.', b'/',
-        b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b':', b';', b'<', b'=', b'>',
-        b'?', b'@', b'A', b'B', b'C', b'D', b'E', b'F', b'G', b'H', b'I', b'J', b'K', b'L', b'M',
-        b'N', b'O', b'P', b'Q', b'R', b'S', b'T', b'U', b'V', b'W', b'X', b'Y', b'Z', b'[', b'\\',
-        b']', b'^', b'_', b'`', b'a', b'b', b'c', b'd', b'e', b'f', b'g', b'h', b'i', b'j', b'k',
-        b'l', b'm', b'n', b'o', b'p', b'q', b'r', b's', b't', b'u', b'v', b'w', b'x', b'y', b'z',
-        b'{', b'|', b'}', b'~',
+//---------------------------------------------------------------------------------------------
+//functions
+fn initialize_frequency_map() -> Box<[f64; 256]> {
+    //how to make the return value with this below match?!? while keeping the fn const..
+    let mut pairmap: [(u8, f64); 94] = [
+        (b'!', 0.02),
+        (b'"', 0.16),
+        (b'#', 0.05),
+        (b'$', 0.05),
+        (b'%', 0.02),
+        (b'&', 0.01),
+        (b'\'', 0.17),
+        (b'(', 0.31),
+        (b')', 0.31),
+        (b'*', 0.04),
+        (b'+', 0.05),
+        (b',', 1.14),
+        (b'-', 0.56),
+        (b'.', 2.31),
+        (b'/', 0.29),
+        (b'0', 0.83),
+        (b'1', 0.67),
+        (b'2', 0.48),
+        (b'3', 0.34),
+        (b'4', 0.29),
+        (b'5', 0.26),
+        (b'6', 0.24),
+        (b'7', 0.19),
+        (b'8', 0.22),
+        (b'9', 0.18),
+        (b':', 0.41),
+        (b';', 0.07),
+        (b'<', 0.04),
+        (b'=', 0.15),
+        (b'>', 0.06),
+        (b'?', 0.02),
+        (b'@', 0.01),
+        (b'A', 0.41),
+        (b'B', 0.19),
+        (b'C', 0.34),
+        (b'D', 0.24),
+        (b'E', 0.28),
+        (b'F', 0.23),
+        (b'G', 0.11),
+        (b'H', 0.13),
+        (b'I', 0.43),
+        (b'J', 0.04),
+        (b'K', 0.06),
+        (b'L', 0.20),
+        (b'M', 0.20),
+        (b'N', 0.21),
+        (b'O', 0.20),
+        (b'P', 0.37),
+        (b'Q', 0.02),
+        (b'R', 0.23),
+        (b'S', 0.45),
+        (b'T', 0.52),
+        (b'U', 0.12),
+        (b'V', 0.07),
+        (b'W', 0.14),
+        (b'X', 0.04),
+        (b'Y', 0.06),
+        (b'Z', 0.02),
+        (b'[', 0.09),
+        (b'\\', 0.05),
+        (b']', 0.09),
+        (b'^', 0.00),
+        (b'_', 0.24),
+        (b'`', 0.00),
+        (b'a', 6.47),
+        (b'b', 1.19),
+        (b'c', 3.34),
+        (b'd', 2.95),
+        (b'e', 10.45),
+        (b'f', 1.73),
+        (b'g', 1.65),
+        (b'h', 3.33),
+        (b'i', 6.14),
+        (b'j', 0.10),
+        (b'k', 0.76),
+        (b'l', 3.41),
+        (b'm', 2.06),
+        (b'n', 5.96),
+        (b'o', 6.44),
+        (b'p', 2.16),
+        (b'q', 0.13),
+        (b'r', 5.42),
+        (b's', 5.83),
+        (b't', 8.12),
+        (b'u', 2.49),
+        (b'v', 0.88),
+        (b'w', 1.27),
+        (b'x', 0.40),
+        (b'y', 1.43),
+        (b'z', 0.11),
+        (b'{', 0.03),
+        (b'|', 0.04),
+        (b'}', 0.03),
+        (b'~', 0.01),
     ];
 
-    //static FREQMAP: HashMap<u8, f64> = initialize_frequency_map();
+    //                              (usize (&mut u8, &mut f64))
+    let returnmap: [f64; 256] = (0..256)
+        .zip(pairmap.iter())
+        .map(|(ind, (byte, score))| /* something*/ 0.0)
+        .collect::<Vec<f64>>()
+        .try_into()
+        .expect("error converting to array in initialize_frequency_map()");
 
-    //todo: make the rest of this compile, print out the pairs (byte, 0.0) for all the bytes not in
-    //ALPHABET, then copy that to be hardcoded into a const FREQMAP: [(u8, f64); 256] value.
+    Box::new(returnmap)
+}
 
-    //---------------------------------------------------------------------------------------------
-    //functions
-
-    ///encrypt/decrypt a text with single byte xor. Error for empty text.
-    fn single_byte_xor(text: Vec<u8>, key: u8) -> Result<Vec<u8>, std::io::Error> {
-        let length: usize = text.len();
-        if length == 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, "Error: text is empty"));
-        }
-        let key_lengthened = (0..length).map(|_| key).collect();
-        Ok(fixed_xor(text, key_lengthened))
+///encrypt or decrypt a text with single byte xor. Error for empty text.
+fn single_byte_xor(text: Vec<u8>, key: u8) -> Result<Vec<u8>, std::io::Error> {
+    let length: usize = text.len();
+    if length == 0 {
+        return Err(io::Error::new(io::ErrorKind::Other, "Error: text is empty"));
     }
+    let key_lengthened = (0..length).map(|_| key).collect();
+    Ok(fixed_xor(text, key_lengthened))
+}
 
-    ///decrypts single byte xor, returns the most likely plaintext.
-    pub fn break_single_byte_xor(ciphertext: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>> {
-        //check ciphertext is nonempty
-        if ciphertext.len() == 0 {
-            return Err(Box::new(io::Error::new(
-                io::ErrorKind::Other,
-                "Error: text is empty",
-            )));
-        }
-/*
-        //initialize the hashmap with (candidate_PT, score)
-        let candidate_scoremap: HashMap<Vec<u8>, f64> = (0..256)
-            .map(|byte| single_byte_xor(ciphertext, byte).unwrap())
-            .map(|candidate_plaintext| {
-                (
-                    candidate_plaintext,
-                    score_english_plaintext(candidate_plaintext),
-                )
-            })
-            .collect();
-*/
-        //return the key with the smallest value
-        todo!();
+///decrypts single byte xor, returns the most likely plaintext.
+pub fn break_single_byte_xor(ciphertext: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>> {
+    //check ciphertext is nonempty
+    if ciphertext.len() == 0 {
+        return Err(Box::new(io::Error::new(
+            io::ErrorKind::Other,
+            "Error: text is empty",
+        )));
     }
+    /*
+            //initialize the hashmap with (candidate_PT, score)
+            let candidate_scoremap: HashMap<Vec<u8>, f64> = (0..256)
+                .map(|byte| single_byte_xor(ciphertext, byte).unwrap())
+                .map(|candidate_plaintext| {
+                    (
+                        candidate_plaintext,
+                        score_english_plaintext(candidate_plaintext),
+                    )
+                })
+                .collect();
+    */
+    //return the key with the smallest value
+    todo!();
+}
 
-    //tests: 1.
-    ///counts the occurances of each byte. Returns array where index = byte, val = count.
-    fn countmap(text: Vec<u8>) -> [f64; 256] {
-        let mut map = [0.0; 256];
-        for byte in text {
-            let mut curr_count = &mut map[usize::from(byte)];
-            *curr_count += 1.0;
-        }
-        map
+//tests: 1.
+///counts the occurances of each byte. Returns array where index = byte, val = count.
+fn countmap(text: Vec<u8>) -> [f64; 256] {
+    let mut map = [0.0; 256];
+    for byte in text {
+        let mut curr_count = &mut map[usize::from(byte)];
+        *curr_count += 1.0;
     }
+    map
+}
 
-    ///Smaller number => more likely to be english text
-    fn score_english_plaintext(plaintext: Vec<u8>) -> f64 {
-        let pt_freq_map = countmap_to_percentmap(countmap(plaintext));
-        todo!();    
-    }
+///Smaller number => more likely to be english text
+fn score_english_plaintext(plaintext: Vec<u8>) -> f64 {
+    let pt_freq_map = countmap_to_percentmap(countmap(plaintext));
+    todo!();
+}
 
-    //tests: 1. tests all cases. 
-    ///Returns the euclidean distance between two floats
-    fn dist(a: &f64, b: &f64) -> f64 {
-        if *a == *b {
-            return 0.0;
-        } else if *a > *b {
-            return *a - *b;
-        } else {
-            return *b - *a;
-        }
-    }
-
-    //tests: 1
-    ///given a map with keys and a f64 occurance count, gives the percent of each key
-    fn countmap_to_percentmap(countmap: [f64; 256]) -> [f64; 256] {
-        let sum: f64 = countmap
-            .iter()
-            .sum();
-        countmap
-            .iter()
-            .map(|&count| count / sum * 100.0)
-            .collect::<Vec<f64>>()
-            .try_into()
-            .expect("error converting vec to array in countmap_to_percentmap")
-    }
-/*
-    fn initialize_frequency_map() -> HashMap<u8, f64> {
-        let mut map: HashMap<u8, f64> = HashMap::from([
-            (b'!', 0.02),
-            (b'"', 0.16),
-            (b'#', 0.05),
-            (b'$', 0.05),
-            (b'%', 0.02),
-            (b'&', 0.01),
-            (b'\'', 0.17),
-            (b'(', 0.31),
-            (b')', 0.31),
-            (b'*', 0.04),
-            (b'+', 0.05),
-            (b',', 1.14),
-            (b'-', 0.56),
-            (b'.', 2.31),
-            (b'/', 0.29),
-            (b'0', 0.83),
-            (b'1', 0.67),
-            (b'2', 0.48),
-            (b'3', 0.34),
-            (b'4', 0.29),
-            (b'5', 0.26),
-            (b'6', 0.24),
-            (b'7', 0.19),
-            (b'8', 0.22),
-            (b'9', 0.18),
-            (b':', 0.41),
-            (b';', 0.07),
-            (b'<', 0.04),
-            (b'=', 0.15),
-            (b'>', 0.06),
-            (b'?', 0.02),
-            (b'@', 0.01),
-            (b'A', 0.41),
-            (b'B', 0.19),
-            (b'C', 0.34),
-            (b'D', 0.24),
-            (b'E', 0.28),
-            (b'F', 0.23),
-            (b'G', 0.11),
-            (b'H', 0.13),
-            (b'I', 0.43),
-            (b'J', 0.04),
-            (b'K', 0.06),
-            (b'L', 0.20),
-            (b'M', 0.20),
-            (b'N', 0.21),
-            (b'O', 0.20),
-            (b'P', 0.37),
-            (b'Q', 0.02),
-            (b'R', 0.23),
-            (b'S', 0.45),
-            (b'T', 0.52),
-            (b'U', 0.12),
-            (b'V', 0.07),
-            (b'W', 0.14),
-            (b'X', 0.04),
-            (b'Y', 0.06),
-            (b'Z', 0.02),
-            (b'[', 0.09),
-            (b'\\', 0.05),
-            (b']', 0.09),
-            (b'^', 0.00),
-            (b'_', 0.24),
-            (b'`', 0.00),
-            (b'a', 6.47),
-            (b'b', 1.19),
-            (b'c', 3.34),
-            (b'd', 2.95),
-            (b'e', 10.45),
-            (b'f', 1.73),
-            (b'g', 1.65),
-            (b'h', 3.33),
-            (b'i', 6.14),
-            (b'j', 0.10),
-            (b'k', 0.76),
-            (b'l', 3.41),
-            (b'm', 2.06),
-            (b'n', 5.96),
-            (b'o', 6.44),
-            (b'p', 2.16),
-            (b'q', 0.13),
-            (b'r', 5.42),
-            (b's', 5.83),
-            (b't', 8.12),
-            (b'u', 2.49),
-            (b'v', 0.88),
-            (b'w', 1.27),
-            (b'x', 0.40),
-            (b'y', 1.43),
-            (b'z', 0.11),
-            (b'{', 0.03),
-            (b'|', 0.04),
-            (b'}', 0.03),
-            (b'~', 0.01),
-        ]);
-
-        //initialize the rest of the bytes to zero
-        (0..256).map(|byte| {
-            if !(&map.contains_key(&byte)) {
-                &map.insert(byte, 0.0);
-            }
-        });
-
-        map
-    }
-*/
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use std::collections::HashMap;
-
-/*
-        #[test]
-        fn test_countmap_to_percentmap() {
-            let input: HashMap<u8, f64> = HashMap::from([('a', 1), ('b', 1)]);
-            let expected = HashMap::from([('a', 50.0), ('b', 50.0)]);
-            assert_eq!(expected, countmap_to_percentmap(input));
-        }
-*/
-/*
-        #[test]
-        fn test_parse_frequency_abba() {
-            let mut expected: HashMap<char, f64> = HashMap::new();
-            for character in ALPHABET {
-                expected.insert(character, 0.0);
-            }
-            let a_ptr: &mut f64 = expected.get_mut(&'a').unwrap();
-            *a_ptr = 50.0;
-
-            let b_ptr: &mut f64 = expected.get_mut(&'b').unwrap();
-            *b_ptr = 50.0;
-
-            let test_string = "abba".to_string();
-            let result = parse_string(test_string);
-
-            //assert_eq!(expected, result);
-            assert_eq!(expected[&'a'], result[&'a']); //50.0
-            assert_eq!(expected[&'b'], result[&'b']); //50.0
-            assert_eq!(expected[&'c'], result[&'c']); //0.0
-        }
-*/
-        #[test]
-        fn test_countmap() {
-            let mut expected: [f64; 256] = [0.0; 256];
-            expected[0] = 1.0;
-            expected[1] = 1.0;
-            assert_eq!(countmap(vec![0 as u8, 1 as u8]), expected);
-        }
-
-        #[test]
-        fn test_dist() {
-            assert_eq!(dist(&0.0, &0.0), 0.0, "a == b == 0.0");
-            assert_eq!(dist(&1.0, &-1.0), 2.0, "a == 1.0, b == -1.0");
-            assert_eq!(dist(&-1.0, &2.0), 3.0, "a == -1.0, b == 2.0");
-        }
-
-        #[test]
-        fn test_countmap_to_percentmap() {
-            let countmap1 = [1.0; 256];
-            let expected1 = [0.390625; 256]; 
-            assert_eq!(countmap_to_percentmap(countmap1), expected1);
-        }
+//tests: 1. tests all cases.
+///Returns the euclidean distance between two floats
+fn dist(a: &f64, b: &f64) -> f64 {
+    if *a == *b {
+        return 0.0;
+    } else if *a > *b {
+        return *a - *b;
+    } else {
+        return *b - *a;
     }
 }
+
+///given a map with keys and a f64 occurance count, gives the percent of each key
+fn countmap_to_percentmap(countmap: [f64; 256]) -> [f64; 256] {
+    let sum: f64 = countmap.iter().sum();
+    countmap
+        .iter()
+        .map(|&count| count / sum * 100.0)
+        .collect::<Vec<f64>>()
+        .try_into()
+        .expect("error converting vec to array in countmap_to_percentmap")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_countmap() {
+        let mut expected: [f64; 256] = [0.0; 256];
+        expected[0] = 1.0;
+        expected[1] = 1.0;
+        assert_eq!(countmap(vec![0 as u8, 1 as u8]), expected);
+    }
+
+    #[test]
+    fn test_dist() {
+        assert_eq!(dist(&0.0, &0.0), 0.0, "a == b == 0.0");
+        assert_eq!(dist(&1.0, &-1.0), 2.0, "a == 1.0, b == -1.0");
+        assert_eq!(dist(&-1.0, &2.0), 3.0, "a == -1.0, b == 2.0");
+    }
+
+    #[test]
+    fn test_countmap_to_percentmap() {
+        let countmap1 = [1.0; 256];
+        let expected1 = [0.390625; 256];
+        assert_eq!(countmap_to_percentmap(countmap1), expected1);
+    }
+}
+
 // 4. Detect single-character XOR. one of the 60-char strings in single-char-xor.txt has been
 //    encrypted with single-character XOR. (use code from 3)
 //
