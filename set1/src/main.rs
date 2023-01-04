@@ -13,7 +13,7 @@ fn hex_to_base64(hex: &str) -> String {
 // 2. DONE fixed XOR: write a function that takes two buffers with equal length
 // and produces their XOR.
 
-fn fixed_xor(bytes_one: Vec<u8>, bytes_two: Vec<u8>) -> Vec<u8> {
+fn fixed_xor(bytes_one: &Vec<u8>, bytes_two: &Vec<u8>) -> Vec<u8> {
     bytes_one
         .iter()
         .zip(bytes_two.iter())
@@ -84,8 +84,7 @@ const ALPHABET: [u8; 94] = [
 
 //---------------------------------------------------------------------------------------------
 //functions
-fn initialize_frequency_map() -> Box<[f64; 256]> {
-    //how to make the return value with this below match?!? while keeping the fn const..
+fn initialize_frequency_map() -> [f64; 256] {
     let mut pairmap: [(u8, f64); 94] = [
         (b'!', 0.02),
         (b'"', 0.16),
@@ -183,29 +182,19 @@ fn initialize_frequency_map() -> Box<[f64; 256]> {
         (b'~', 0.01),
     ];
 
-    //                              (usize (&mut u8, &mut f64))
-    let returnmap: [f64; 256] = (0..256)
-        .zip(pairmap.iter())
-        .map(|(ind, (byte, score))| /* something*/ 0.0)
-        .collect::<Vec<f64>>()
-        .try_into()
-        .expect("error converting to array in initialize_frequency_map()");
+    let mut returnmap: [f64; 256] = [0.0; 256];
 
-    Box::new(returnmap)
-}
-
-///encrypt or decrypt a text with single byte xor. Error for empty text.
-fn single_byte_xor(text: Vec<u8>, key: u8) -> Result<Vec<u8>, std::io::Error> {
-    let length: usize = text.len();
-    if length == 0 {
-        return Err(io::Error::new(io::ErrorKind::Other, "Error: text is empty"));
+    for (byte, freq) in pairmap {
+        returnmap[usize::from(byte)] = freq;
     }
-    let key_lengthened = (0..length).map(|_| key).collect();
-    Ok(fixed_xor(text, key_lengthened))
+
+    returnmap
 }
 
-///decrypts single byte xor, returns the most likely plaintext.
-pub fn break_single_byte_xor(ciphertext: Vec<u8>) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn break_single_byte_xor(
+    ciphertext: Vec<u8>,
+    freqmap: &[f64; 256],
+) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     //check ciphertext is nonempty
     if ciphertext.len() == 0 {
         return Err(Box::new(io::Error::new(
@@ -213,21 +202,53 @@ pub fn break_single_byte_xor(ciphertext: Vec<u8>) -> Result<Vec<u8>, Box<dyn Err
             "Error: text is empty",
         )));
     }
-    /*
-            //initialize the hashmap with (candidate_PT, score)
-            let candidate_scoremap: HashMap<Vec<u8>, f64> = (0..256)
-                .map(|byte| single_byte_xor(ciphertext, byte).unwrap())
-                .map(|candidate_plaintext| {
-                    (
-                        candidate_plaintext,
-                        score_english_plaintext(candidate_plaintext),
-                    )
-                })
-                .collect();
-    */
-    //return the key with the smallest value
-    todo!();
+
+    //create list of probable plaintexts 
+    let mut probable_plaintexts: Vec<Vec<u8>> = Vec::new();
+    let ciphertext_length = (&ciphertext).len();
+    for byte in ALPHABET {
+        let single_byte_extended: Vec<u8> = vec![byte; ciphertext_length];
+        let candidate_plaintext: Vec<u8> = fixed_xor(&ciphertext, &single_byte_extended);
+        probable_plaintexts.push(candidate_plaintext);
+    }
+
+    //score 'em
+    let mut plaintexts_ranked: Vec<(Vec<u8>, f64)> = Vec::new();
+    for pt in probable_plaintexts {
+        plaintexts_ranked.push((pt.clone(), score_english_plaintext(pt, &freqmap)));
+    }
+   
+    //pick the n with the lowest score
+    let lowest = lowest_n(plaintexts_ranked, 25);
+
+    Ok(lowest)
 }
+
+///returns the n plaintexts with the lowest score
+fn lowest_n(mut scored_plaintexts: Vec<(Vec<u8>, f64)>, n: usize) -> Vec<Vec<u8>> {
+    let mut lowest_five: Vec<Vec<u8>> = Vec::new();
+    for i in 0..n {
+        
+        //get pt closest to english in scored_plaintexts
+        let lowest: Vec<u8> = scored_plaintexts.iter()
+            .fold((Vec::new(), 0.0), |acc, (pt, score)| if score > &acc.1 {
+                ((*pt).clone(), *score)
+            } else {
+                acc
+            }).0;
+        
+        //remove said plaintext from scored_plaintexts
+        scored_plaintexts = scored_plaintexts.into_iter()
+            .filter(|(pt, score)| *pt != lowest)
+            .collect();
+
+        //add said plaintext to lowest_three
+        lowest_five.push(lowest);
+    }
+    lowest_five
+}
+
+
 
 //tests: 1.
 ///counts the occurances of each byte. Returns array where index = byte, val = count.
@@ -241,20 +262,32 @@ fn countmap(text: Vec<u8>) -> [f64; 256] {
 }
 
 ///Smaller number => more likely to be english text
-fn score_english_plaintext(plaintext: Vec<u8>) -> f64 {
-    let pt_freq_map = countmap_to_percentmap(countmap(plaintext));
-    todo!();
+fn score_english_plaintext(plaintext: Vec<u8>, freqmap: &(&[f64; 256])) -> f64 {
+    let pt_freqmap: [f64; 256] = countmap_to_percentmap(countmap(plaintext.clone()));
+    
+    //for indicies where either pt_freqmap or freqmap are nonzero, record dist
+    let dists: Vec<f64> = (&pt_freqmap).into_iter()
+                            .zip((*freqmap).iter())
+                            .map(|(pt_freq, freq)| dist(*pt_freq, *freq))
+                            .filter(|dist| *dist != 0.0)
+                            .collect();
+
+    //compute avg of dists
+    let len = (&dists).len() as f64;
+    let avg = dists.into_iter().sum::<f64>() / len;
+
+    avg
 }
 
 //tests: 1. tests all cases.
 ///Returns the euclidean distance between two floats
-fn dist(a: &f64, b: &f64) -> f64 {
-    if *a == *b {
+fn dist(a: f64, b: f64) -> f64 {
+    if a == b {
         return 0.0;
-    } else if *a > *b {
-        return *a - *b;
+    } else if a > b {
+        return a - b;
     } else {
-        return *b - *a;
+        return b - a;
     }
 }
 
@@ -358,5 +391,13 @@ fn repeating_key_xor(plaintext: &Vec<u8>, key: Vec<u8>) -> Vec<u8> {
 //    produce the same 16 byte ciphertext.
 
 fn main() {
-    //nothing here for now
+    //3 break single-byte xor
+
+    let freqmap: [f64; 256] = initialize_frequency_map();
+    let ciphertext: Vec<u8> = hex::decode(STRING_3).expect("error hex-decoding plaintext");
+    let plaintexts =
+        break_single_byte_xor(ciphertext, &freqmap).expect("error breaking single byte xor");
+    for pt in plaintexts { 
+        println!("{}", std::str::from_utf8(&pt).unwrap());
+    }
 }
