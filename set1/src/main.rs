@@ -14,10 +14,11 @@ fn hex_to_base64(hex: &str) -> String {
 // and produces their XOR.
 
 fn fixed_xor(bytes_one: &Vec<u8>, bytes_two: &Vec<u8>) -> Vec<u8> {
+    assert!(bytes_one.len() == bytes_two.len());
     bytes_one
         .iter()
         .zip(bytes_two.iter())
-        .map(|(&x1, &x2)| x1 ^ x2)
+        .map(|(x1, x2)| x1 ^ x2)
         .collect()
 }
 
@@ -39,26 +40,30 @@ mod tests_small_crates {
 I go crazy when I hear a cymbal";
     const ANS_EXPECTED: &str = "0b3637272a2b2e63622c2e69692a23693a2a3c6324202d623d63343c2a26226324272765272a282b2f20430a652e2c652a3124333a653e2b2027630c692b20283165286326302e27282f";
     const KEY: &str = "ICE";
-    /*
-        #[test]
-        fn test_fixed_xor() {
-            assert_eq!(STRING_RESULT_2, &fixed_xor(STRING1_2, STRING2_2));
-        }
 
-        #[test]
-        fn test_hex_to_base64() {
-            assert_eq!(BASE64_1, &hex_to_base64(HEX_1));
-        }
-    */
-    /*
+    #[test]
+    fn test_fixed_xor() {
+        assert_eq!(
+            &hex::decode(STRING_RESULT_2).unwrap(),
+            &fixed_xor(
+                &hex::decode(STRING1_2).unwrap(),
+                &hex::decode(STRING2_2).unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn test_hex_to_base64() {
+        assert_eq!(BASE64_1, &hex_to_base64(HEX_1));
+    }
+
     #[test]
     fn test_repeating_key_xor() {
         let plaintext = STANZA.as_bytes();
         let key = KEY.as_bytes();
-        let ciphertext = repeating_key_xor(plaintext, key);
-        assert_eq!(ciphertext, ANS_EXPECTED);
+        let ciphertext = repeating_key_xor(&plaintext.to_vec(), key.to_vec());
+        assert_eq!(ciphertext, hex::decode(ANS_EXPECTED).unwrap());
     }
-    */
 }
 
 // 3. decode single-byte XOR cipher: the hex encoded string has been xor'd
@@ -203,7 +208,7 @@ pub fn break_single_byte_xor(
         )));
     }
 
-    //create list of probable plaintexts 
+    //create list of probable plaintexts
     let mut probable_plaintexts: Vec<Vec<u8>> = Vec::new();
     let ciphertext_length = (&ciphertext).len();
     for byte in ALPHABET {
@@ -217,7 +222,7 @@ pub fn break_single_byte_xor(
     for pt in probable_plaintexts {
         plaintexts_ranked.push((pt.clone(), score_english_plaintext(pt, &freqmap)));
     }
-   
+
     //pick the n with the lowest score
     let lowest = lowest_n(plaintexts_ranked, 25);
 
@@ -226,29 +231,31 @@ pub fn break_single_byte_xor(
 
 ///returns the n plaintexts with the lowest score
 fn lowest_n(mut scored_plaintexts: Vec<(Vec<u8>, f64)>, n: usize) -> Vec<Vec<u8>> {
-    let mut lowest_five: Vec<Vec<u8>> = Vec::new();
+    let mut lowest_n: Vec<Vec<u8>> = Vec::new();
     for i in 0..n {
-        
         //get pt closest to english in scored_plaintexts
-        let lowest: Vec<u8> = scored_plaintexts.iter()
-            .fold((Vec::new(), 0.0), |acc, (pt, score)| if score > &acc.1 {
-                ((*pt).clone(), *score)
-            } else {
-                acc
-            }).0;
-        
+        let lowest: Vec<u8> = scored_plaintexts
+            .iter()
+            .fold((Vec::new(), 0.0), |acc, (pt, score)| {
+                if score > &acc.1 {
+                    ((*pt).clone(), *score)
+                } else {
+                    acc
+                }
+            })
+            .0;
+
         //remove said plaintext from scored_plaintexts
-        scored_plaintexts = scored_plaintexts.into_iter()
+        scored_plaintexts = scored_plaintexts
+            .into_iter()
             .filter(|(pt, score)| *pt != lowest)
             .collect();
 
         //add said plaintext to lowest_three
-        lowest_five.push(lowest);
+        lowest_n.push(lowest);
     }
-    lowest_five
+    lowest_n
 }
-
-
 
 //tests: 1.
 ///counts the occurances of each byte. Returns array where index = byte, val = count.
@@ -264,13 +271,14 @@ fn countmap(text: Vec<u8>) -> [f64; 256] {
 ///Smaller number => more likely to be english text
 fn score_english_plaintext(plaintext: Vec<u8>, freqmap: &(&[f64; 256])) -> f64 {
     let pt_freqmap: [f64; 256] = countmap_to_percentmap(countmap(plaintext.clone()));
-    
+
     //for indicies where either pt_freqmap or freqmap are nonzero, record dist
-    let dists: Vec<f64> = (&pt_freqmap).into_iter()
-                            .zip((*freqmap).iter())
-                            .map(|(pt_freq, freq)| dist(*pt_freq, *freq))
-                            .filter(|dist| *dist != 0.0)
-                            .collect();
+    let dists: Vec<f64> = (&pt_freqmap)
+        .into_iter()
+        .zip((*freqmap).iter())
+        .map(|(pt_freq, freq)| dist(*pt_freq, *freq))
+        .filter(|dist| *dist != 0.0)
+        .collect();
 
     //compute avg of dists
     let len = (&dists).len() as f64;
@@ -316,9 +324,9 @@ mod tests {
 
     #[test]
     fn test_dist() {
-        assert_eq!(dist(&0.0, &0.0), 0.0, "a == b == 0.0");
-        assert_eq!(dist(&1.0, &-1.0), 2.0, "a == 1.0, b == -1.0");
-        assert_eq!(dist(&-1.0, &2.0), 3.0, "a == -1.0, b == 2.0");
+        assert_eq!(dist(0.0, 0.0), 0.0, "a == b == 0.0");
+        assert_eq!(dist(1.0, -1.0), 2.0, "a == 1.0, b == -1.0");
+        assert_eq!(dist(-1.0, 2.0), 3.0, "a == -1.0, b == 2.0");
     }
 
     #[test]
@@ -338,21 +346,18 @@ mod tests {
 // 5. Implement repeating key XOR. Encrypt STANZA under key "ICE" to get ANS_EXPECTED. Try
 //    encrypting a bunch of random shit with repeating key XOR.
 //
-//    -- I think it's done but I haven't tested it because I'm refactoring 3 code before compiling.
 
-/*
 fn repeating_key_xor(plaintext: &Vec<u8>, key: Vec<u8>) -> Vec<u8> {
     let mut key_letter_count = 0;
     let keysize = key.len();
     let mut ciphertext: Vec<u8> = Vec::new();
 
-    for byte in *plaintext {
+    for byte in plaintext {
         ciphertext.push(byte ^ key[key_letter_count]);
         key_letter_count = (key_letter_count + 1) % keysize;
     }
     ciphertext
 }
-*/
 
 // 6. BREAK REPEATING KEY XOR. File break-repeat-xor.txt has been base64'd after encrypted with
 //      repeating key XOR. Method to break:
@@ -361,7 +366,17 @@ fn repeating_key_xor(plaintext: &Vec<u8>, key: Vec<u8>) -> Vec<u8> {
 //
 //      b. write a function to compute hamming distance (number of differing bits). The distance
 //          between "this is a test" and "wokka wokka!!!" is 37.
-//
+
+///hamming/flip distance between two texts of the same length. Far from optimized.
+fn hamming_dist(a: Vec<u8>, b: Vec<u8>) -> usize {
+    assert!((&a).len() == (&b).len());
+    a.into_iter()
+        .zip(b.into_iter())
+        .map(|(a_byte, b_byte)| a_byte ^ b_byte)
+        .map(|xored_byte| xored_byte.count_ones() as usize)
+        .sum()
+}
+
 //      c. for each KEYSIZE take first KEYSIZE length of bytes, then second KEYSIZE length of
 //          bytes, find hamming distance btwn them. Normalize by dividing by KEYSIZE.
 //          the KEYSIZE with smallest normalized hamming distance is probably the size.
@@ -381,6 +396,26 @@ fn repeating_key_xor(plaintext: &Vec<u8>, key: Vec<u8>) -> Vec<u8> {
 //
 //      note: this code is also called Vigenere.
 
+#[cfg(test)]
+mod test_six {
+    use super::*;
+
+    //hamming_dist consts
+    const A: &str = "this is a test";
+    const B: &str = "wokka wokka!!!";
+
+    #[test]
+    fn test_hamming_dist() {
+        assert_eq!(
+            hamming_dist(A.as_bytes().to_vec(), B.as_bytes().to_vec()),
+            37
+        );
+        let vec1: Vec<u8> = vec![0b0000];
+        let vec2: Vec<u8> = vec![0b1111];
+        assert_eq!(hamming_dist(vec1, vec2), 4);
+    }
+}
+
 // 7. Decrypt AES in ECB mode. The base64'd content in aes-ecb.txt has been encrypted via
 //      AES-128 in ECB mode under the key "YELLOW SUBMARINE" (no quotes, 16 chars). easiest way:
 //      use OpenSSL::Cipher with AES-128-ECB.
@@ -397,7 +432,7 @@ fn main() {
     let ciphertext: Vec<u8> = hex::decode(STRING_3).expect("error hex-decoding plaintext");
     let plaintexts =
         break_single_byte_xor(ciphertext, &freqmap).expect("error breaking single byte xor");
-    for pt in plaintexts { 
+    for pt in plaintexts {
         println!("{}", std::str::from_utf8(&pt).unwrap());
     }
 }
