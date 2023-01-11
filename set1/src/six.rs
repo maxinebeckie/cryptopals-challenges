@@ -1,4 +1,3 @@
-
 // 6. BREAK REPEATING KEY XOR. File break-repeat-xor.txt has been base64'd after encrypted with
 //      repeating key XOR. Method to break:
 //
@@ -55,4 +54,3 @@ mod test_six {
         assert_eq!(hamming_dist(vec1, vec2), 4);
     }
 }
-
