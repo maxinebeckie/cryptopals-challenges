@@ -59,8 +59,6 @@ fn main() {
         let xored_file =
             five::repeating_key_xor(&contents.as_bytes().to_vec(), key.as_bytes().to_vec());
 
-        println!(
-            "{}",
-            hex::encode(&xored_file)      );
+        println!("{}", hex::encode(&xored_file));
     }
 }
