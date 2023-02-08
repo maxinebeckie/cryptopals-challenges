@@ -3,14 +3,7 @@ use hex;
 use std::fs::File;
 use std::io::prelude::*;
 
-pub mod eight;
-pub mod five;
-pub mod four;
-pub mod one;
-pub mod seven;
-pub mod six;
-pub mod three;
-pub mod two;
+use set1::{three, five}
 
 fn main() {
     let cli = Command::new(clap::crate_name!())

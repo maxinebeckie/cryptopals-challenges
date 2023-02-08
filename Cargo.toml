@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+  "cli",
+  "set1",
+  "set2",
+  "set5",
+]
